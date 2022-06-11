@@ -1,7 +1,6 @@
-use std::path::PathBuf;
-use std::process::Command;
+use std::{path::PathBuf, process::Command};
 
-use clap::Parser;
+use structopt::StructOpt;
 
 #[derive(Debug, Copy, Clone)]
 pub enum Architecture {
@@ -30,35 +29,34 @@ impl std::fmt::Display for Architecture {
     }
 }
 
-#[derive(Debug, Parser)]
+#[derive(StructOpt)]
 pub struct Options {
-    /// Set the endianness of the BPF target
-    #[clap(default_value = "bpfel-unknown-none", long)]
-    pub target: Architecture,
-    /// Build the release target
-    #[clap(long)]
-    pub release: bool,
+    #[structopt(default_value = "bpfel-unknown-none", long)]
+    target: Architecture,
+    /// Build profile for eBPF programs
+    #[structopt(default_value = "release", long)]
+    pub profile: String,
 }
 
-pub fn build_ebpf(opts: Options) -> Result<(), anyhow::Error> {
+pub fn build(opts: Options) -> Result<(), anyhow::Error> {
     let dir = PathBuf::from("myxdp-ebpf");
     let target = format!("--target={}", opts.target);
-    let mut args = vec![
+    let args = vec![
         "+nightly",
         "build",
         "--verbose",
         target.as_str(),
         "-Z",
         "build-std=core",
+        "--profile",
+        opts.profile.as_str(),
     ];
-    if opts.release {
-        args.push("--release")
-    }
+
     let status = Command::new("cargo")
         .current_dir(&dir)
         .args(&args)
         .status()
-        .expect("failed to build bpf program");
+        .expect("failed to build bpf examples");
     assert!(status.success());
     Ok(())
 }

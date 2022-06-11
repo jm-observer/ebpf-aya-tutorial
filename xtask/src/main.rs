@@ -1,29 +1,28 @@
 mod build_ebpf;
-mod run;
+mod codegen;
 
 use std::process::exit;
 
-use clap::Parser;
-
-#[derive(Debug, Parser)]
+use structopt::StructOpt;
+#[derive(StructOpt)]
 pub struct Options {
-    #[clap(subcommand)]
+    #[structopt(subcommand)]
     command: Command,
 }
 
-#[derive(Debug, Parser)]
+#[derive(StructOpt)]
 enum Command {
     BuildEbpf(build_ebpf::Options),
-    Run(run::Options),
+    Codegen,
 }
 
 fn main() {
-    let opts = Options::parse();
+    let opts = Options::from_args();
 
     use Command::*;
     let ret = match opts.command {
-        BuildEbpf(opts) => build_ebpf::build_ebpf(opts),
-        Run(opts) => run::run(opts),
+        BuildEbpf(opts) => build_ebpf::build(opts),
+        Codegen => codegen::generate(),
     };
 
     if let Err(e) = ret {

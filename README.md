@@ -24,5 +24,5 @@ cargo build
 ## Run
 
 ```bash
-cargo xtask run
+sudo ./target/debug/myxdp ./target/bpfel-unknown-none/release/myxdp enp0s3
 ```
