@@ -1,12 +1,15 @@
 use anyhow::Context;
 use aya::{
-    maps::perf::AsyncPerfEventArray,
+    maps::{perf::AsyncPerfEventArray, HashMap},
     programs::{Xdp, XdpFlags},
     util::online_cpus,
     Bpf,
 };
 use bytes::BytesMut;
-use std::{env, fs, net};
+use std::{
+    env, fs,
+    net::{self, Ipv4Addr},
+};
 use tokio::{signal, task};
 
 use myxdp_common::PacketLog;
@@ -31,29 +34,31 @@ async fn main() -> Result<(), anyhow::Error> {
         .context("failed to attach the XDP program with default flags - try changing XdpFlags::default() to XdpFlags::SKB_MODE")?;
 
     // (1)
+    let mut blocklist: HashMap<_, u32, u32> = HashMap::try_from(bpf.map_mut("BLOCKLIST")?)?;
+
+    // (2)14.215.177.39
+    let block_addr: u32 = Ipv4Addr::new(14, 215, 177, 39).try_into()?;
+
+    // (3)
+    blocklist.insert(block_addr, 0, 0)?;
+
     let mut perf_array = AsyncPerfEventArray::try_from(bpf.map_mut("EVENTS")?)?;
 
     for cpu_id in online_cpus()? {
-        // (2)
         let mut buf = perf_array.open(cpu_id, None)?;
 
-        // (3)
         task::spawn(async move {
-            // (4)
             let mut buffers = (0..10)
                 .map(|_| BytesMut::with_capacity(1024))
                 .collect::<Vec<_>>();
 
             loop {
-                // (5)
                 let events = buf.read_events(&mut buffers).await.unwrap();
                 for i in 0..events.read {
                     let buf = &mut buffers[i];
                     let ptr = buf.as_ptr() as *const PacketLog;
-                    // (6)
                     let data = unsafe { ptr.read_unaligned() };
                     let src_addr = net::Ipv4Addr::from(data.ipv4_address);
-                    // (7)
                     println!("LOG: SRC {}, ACTION {}", src_addr, data.action);
                 }
             }

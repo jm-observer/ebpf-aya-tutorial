@@ -7,4 +7,4 @@ pub struct PacketLog {
 }
 
 #[cfg(feature = "user")]
-unsafe impl aya::Pod for PacketLog {} // (1)
+unsafe impl aya::Pod for PacketLog {}

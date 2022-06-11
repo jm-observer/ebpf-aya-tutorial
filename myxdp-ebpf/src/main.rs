@@ -4,7 +4,7 @@
 use aya_bpf::{
     bindings::xdp_action,
     macros::{map, xdp},
-    maps::PerfEventArray,
+    maps::{HashMap, PerfEventArray},
     programs::XdpContext,
 };
 
@@ -20,9 +20,13 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
     unreachable!()
 }
 
-#[map(name = "EVENTS")] // (1)
+#[map(name = "EVENTS")]
 static mut EVENTS: PerfEventArray<PacketLog> =
     PerfEventArray::<PacketLog>::with_max_entries(1024, 0);
+
+#[map(name = "BLOCKLIST")] // (1)
+static mut BLOCKLIST: HashMap<u32, u32> =
+    HashMap::<u32, u32>::with_max_entries(1024, 0);
 
 #[xdp]
 pub fn xdp_firewall(ctx: XdpContext) -> u32 {
@@ -32,7 +36,7 @@ pub fn xdp_firewall(ctx: XdpContext) -> u32 {
     }
 }
 
-#[inline(always)] // (2)
+#[inline(always)]
 unsafe fn ptr_at<T>(ctx: &XdpContext, offset: usize) -> Result<*const T, ()> {
     let start = ctx.data();
     let end = ctx.data_end();
@@ -45,10 +49,14 @@ unsafe fn ptr_at<T>(ctx: &XdpContext, offset: usize) -> Result<*const T, ()> {
     Ok((start + offset) as *const T)
 }
 
+// (2)
+fn block_ip(address: u32) -> bool {
+    unsafe { BLOCKLIST.get(&address).is_some() }
+}
+
 fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
-    let h_proto = u16::from_be(unsafe {
-        *ptr_at(&ctx, offset_of!(ethhdr, h_proto))? // (3)
-    });
+    let h_proto =
+        u16::from_be(unsafe { *ptr_at(&ctx, offset_of!(ethhdr, h_proto))? });
     if h_proto != ETH_P_IP {
         return Ok(xdp_action::XDP_PASS);
     }
@@ -56,14 +64,23 @@ fn try_xdp_firewall(ctx: XdpContext) -> Result<u32, ()> {
         *ptr_at(&ctx, ETH_HDR_LEN + offset_of!(iphdr, saddr))?
     });
 
+    // (3)
+    let action = if block_ip(source) {
+        xdp_action::XDP_DROP
+    } else {
+        xdp_action::XDP_PASS
+    };
+
     let log_entry = PacketLog {
         ipv4_address: source,
-        action: xdp_action::XDP_PASS,
+        action: action,
     };
+
     unsafe {
-        EVENTS.output(&ctx, &log_entry, 0); // (4)
+        EVENTS.output(&ctx, &log_entry, 0);
     }
-    Ok(xdp_action::XDP_PASS)
+
+    Ok(action)
 }
 
 const ETH_P_IP: u16 = 0x0800;
